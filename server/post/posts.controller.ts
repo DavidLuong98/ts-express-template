@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction, Router } from "express";
-import * as express from "express";
 import PostNotFoundException from "../exceptions/PostNotFoundException";
 import Controller from "../interfaces/controller.interface";
 import RequestWithUser from "../interfaces/requestWithUser.interface";
@@ -7,24 +6,18 @@ import authMiddleware from "../middleware/auth.middleware";
 import validationMiddleware from "../middleware/validation.middleware";
 import CreatePostDto from "./post.dto";
 import Post from "./posts.interface";
-import PostModel from "./posts.model";
+import postModel from "./posts.model";
 
-class PostsController {
+class PostController implements Controller {
   public path = "/posts";
-  public router = express.Router();
-  private post = PostModel;
+  public router = Router();
+  private post = postModel;
 
-  private posts: Post[] = [
-    {
-      author: "Marcin",
-      content: "Dolor sit amet",
-      title: "Lorem Ipsum",
-    },
-  ];
   constructor() {
-    this.intializeRoutes();
+    this.initializeRoutes();
   }
-  public intializeRoutes() {
+
+  private initializeRoutes() {
     this.router.get(this.path, this.getAllPosts);
     this.router.get(`${this.path}/:id`, this.getPostById);
     this.router
@@ -42,80 +35,65 @@ class PostsController {
         this.createPost
       );
   }
-  private getAllPosts = (
-    request: express.Request,
-    response: express.Response
-  ) => {
-    response.send(this.posts);
+
+  private getAllPosts = async (request: Request, response: Response) => {
+    const posts = await this.post.find().populate("author", "-password");
+    response.send(posts);
   };
 
-  private createAPost = (
-    request: express.Request,
-    response: express.Response
+  private getPostById = async (
+    request: Request,
+    response: Response,
+    next: NextFunction
   ) => {
-    const post: Post = request.body;
-    this.posts.push(post);
-    response.send(post);
+    const id = request.params.id;
+    const post = await this.post.findById(id);
+    if (post) {
+      response.send(post);
+    } else {
+      next(new PostNotFoundException(id));
+    }
   };
 
-  private createPost = async (
-    request: RequestWithUser,
-    response: express.Response
+  private modifyPost = async (
+    request: Request,
+    response: Response,
+    next: NextFunction
   ) => {
+    const id = request.params.id;
+    const postData: Post = request.body;
+    const post = await this.post.findByIdAndUpdate(id, postData, { new: true });
+    if (post) {
+      response.send(post);
+    } else {
+      next(new PostNotFoundException(id));
+    }
+  };
+
+  private createPost = async (request: RequestWithUser, response: Response) => {
     const postData: CreatePostDto = request.body;
     const createdPost = new this.post({
       ...postData,
-      authorId: request.user._id,
+      author: request.user._id,
     });
     const savedPost = await createdPost.save();
+    await savedPost.populate("author", "-password").execPopulate();
     response.send(savedPost);
   };
-  private getAllPost = (
-    request: express.Request,
-    response: express.Response
-  ) => {
-    PostModel.find().then((posts) => {
-      response.send(posts);
-    });
-  };
 
-  private getPostById = (
-    request: express.Request,
-    response: express.Response,
-    next: express.NextFunction
+  private deletePost = async (
+    request: Request,
+    response: Response,
+    next: NextFunction
   ) => {
     const id = request.params.id;
-    PostModel.findById(id).then((post) => {
-      if (post) {
-        response.send(post);
-      } else {
-        next(new PostNotFoundException(id));
-      }
-    });
-  };
-
-  // HTTP Patch
-  modifyPost = (request: express.Request, response: express.Response) => {
-    const id = request.params.id;
-    const postData: Post = request.body;
-    this.post.findByIdAndUpdate(id, postData, { new: true }).then((post) => {
-      response.send(post);
-    });
-  };
-
-  private deletePost = (
-    request: express.Request,
-    response: express.Response
-  ) => {
-    const id = request.params.id;
-    this.post.findByIdAndDelete(id).then((successResponse) => {
-      if (successResponse) {
-        response.send(200);
-      } else {
-        response.send(new PostNotFoundException(id));
-      }
-    });
+    const successResponse = await this.post.findByIdAndDelete(id);
+    if (successResponse) {
+      response.send(200);
+    } else {
+      next(new PostNotFoundException(id));
+    }
   };
 }
 
-export default PostsController;
+export default PostController;
